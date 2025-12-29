@@ -1,11 +1,19 @@
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
+use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use axum::{Router, routing::get};
+use tokio::net::TcpListener as TokioTcpListener;
+use tokio::runtime::Builder;
+use tokio::sync::oneshot;
 
 use crate::{AuthorizationResponse, OAuthError};
 
 use super::config::{DEFAULT_ERROR_HTML, DEFAULT_SUCCESS_HTML, LocalServerConfig};
+use super::http::{
+    LocalServerState, callback_handler, fallback_handler, send_response, wait_for_response,
+};
 use super::target::RedirectTarget;
 
 #[derive(Debug, Clone)]
@@ -57,53 +65,18 @@ impl LocalServer {
     }
 
     pub fn listen_with(&self, listener: TcpListener) -> Result<AuthorizationResponse, OAuthError> {
-        if let Some(timeout) = self.timeout {
-            return self.listen_with_timeout(listener, timeout);
-        }
+        let server = self.clone();
+        let handle = thread::spawn(move || -> Result<AuthorizationResponse, OAuthError> {
+            let runtime = Builder::new_current_thread().enable_all().build()?;
+            runtime.block_on(server.listen_with_async(listener))
+        });
 
-        self.listen_blocking(listener)
-    }
-
-    fn listen_blocking(&self, listener: TcpListener) -> Result<AuthorizationResponse, OAuthError> {
-        loop {
-            let (mut stream, _) = listener.accept()?;
-            match self.handle_request(&mut stream)? {
-                Some(response) => return Ok(response),
-                None => continue,
-            }
-        }
-    }
-
-    fn listen_with_timeout(
-        &self,
-        listener: TcpListener,
-        timeout: Duration,
-    ) -> Result<AuthorizationResponse, OAuthError> {
-        listener.set_nonblocking(true)?;
-        let deadline = Instant::now() + timeout;
-
-        loop {
-            if Instant::now() >= deadline {
-                return Err(OAuthError::LocalServerTimeout { timeout });
-            }
-
-            match listener.accept() {
-                Ok((mut stream, _)) => {
-                    let now = Instant::now();
-                    if now >= deadline {
-                        return Err(OAuthError::LocalServerTimeout { timeout });
-                    }
-                    let remaining = deadline.duration_since(now);
-                    stream.set_read_timeout(Some(remaining))?;
-                    if let Some(response) = self.handle_request(&mut stream)? {
-                        return Ok(response);
-                    }
-                }
-                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
-                    thread::sleep(Duration::from_millis(50));
-                }
-                Err(err) => return Err(err.into()),
-            }
+        match handle.join() {
+            Ok(result) => result,
+            Err(_) => Err(OAuthError::InvalidResponse {
+                message: "local server thread panicked".to_string(),
+                body: String::new(),
+            }),
         }
     }
 
@@ -112,63 +85,55 @@ impl LocalServer {
         self.listen_with(listener)
     }
 
-    fn handle_request(
+    pub async fn listen_with_async(
         &self,
-        stream: &mut TcpStream,
-    ) -> Result<Option<AuthorizationResponse>, OAuthError> {
-        let mut buffer = [0u8; 8192];
-        let bytes = stream.read(&mut buffer)?;
-        if bytes == 0 {
-            return Ok(None);
-        }
+        listener: TcpListener,
+    ) -> Result<AuthorizationResponse, OAuthError> {
+        let (response_tx, response_rx) =
+            oneshot::channel::<Result<AuthorizationResponse, OAuthError>>();
+        let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+        let response_tx = Arc::new(Mutex::new(Some(response_tx)));
 
-        let request = String::from_utf8_lossy(&buffer[..bytes]);
-        let request_line = match request.lines().next() {
-            Some(line) => line,
-            None => {
-                write_response(stream, "400 Bad Request", &self.error_html)?;
-                return Ok(None);
-            }
+        let state = LocalServerState {
+            target: self.target.clone(),
+            success_html: self.success_html.clone(),
+            error_html: self.error_html.clone(),
+            response_tx: response_tx.clone(),
         };
 
-        let mut parts = request_line.split_whitespace();
-        let method = parts.next().unwrap_or("");
-        let target = parts.next().unwrap_or("");
+        let app = Router::new()
+            .route(&state.target.path, get(callback_handler))
+            .fallback(fallback_handler)
+            .with_state(state);
 
-        if method != "GET" {
-            write_response(stream, "405 Method Not Allowed", &self.error_html)?;
-            return Ok(None);
-        }
+        listener.set_nonblocking(true)?;
+        let listener = TokioTcpListener::from_std(listener)?;
 
-        let (path, query) = target.split_once('?').unwrap_or((target, ""));
-        if path != self.target.path {
-            write_response(stream, "404 Not Found", &self.error_html)?;
-            return Ok(None);
-        }
+        let server = axum::serve(listener, app).with_graceful_shutdown(async move {
+            let _ = shutdown_rx.await;
+        });
 
-        let callback_url = self.target.build_callback_url(query)?;
-        match AuthorizationResponse::from_url(&callback_url) {
-            Ok(response) => {
-                write_response(stream, "200 OK", &self.success_html)?;
-                Ok(Some(response))
+        let response_tx_for_server = response_tx.clone();
+        let server_handle = tokio::spawn(async move {
+            if let Err(err) = server.await {
+                let error = OAuthError::InvalidResponse {
+                    message: err.to_string(),
+                    body: String::new(),
+                };
+                send_response(&response_tx_for_server, Err(error));
             }
-            Err(OAuthError::MissingAuthorizationCode) => {
-                write_response(stream, "400 Bad Request", &self.error_html)?;
-                Ok(None)
-            }
-            Err(error) => {
-                write_response(stream, "500 Internal Server Error", &self.error_html)?;
-                Err(error)
-            }
-        }
+        });
+
+        let response = wait_for_response(response_rx, self.timeout).await;
+
+        let _ = shutdown_tx.send(());
+        let _ = server_handle.await;
+
+        response
     }
-}
 
-fn write_response(stream: &mut TcpStream, status: &str, body: &str) -> Result<(), OAuthError> {
-    let response = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.len()
-    );
-    stream.write_all(response.as_bytes())?;
-    Ok(())
+    pub async fn listen_once_async(&self) -> Result<AuthorizationResponse, OAuthError> {
+        let listener = self.bind()?;
+        self.listen_with_async(listener).await
+    }
 }

@@ -177,8 +177,7 @@ impl<P: OAuthProvider> OAuthClient<P> {
             None => LocalServer::new(self.config.redirect_uri.clone())?,
         };
         let listener = server.bind()?;
-
-        let handle = tokio::task::spawn_blocking(move || server.listen_with(listener));
+        let handle = tokio::spawn(async move { server.listen_with_async(listener).await });
 
         on_authorize(&auth)?;
 

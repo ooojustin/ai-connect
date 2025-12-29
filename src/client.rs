@@ -219,6 +219,12 @@ impl<P: OAuthProvider> OAuthClient<P> {
             payload.insert("client_secret".to_string(), secret.clone());
         }
 
+        if self.provider.include_state_in_token_request() {
+            if let Some(state_value) = returned_state.or(expected_state) {
+                payload.insert("state".to_string(), state_value.to_string());
+            }
+        }
+
         self.send_token_request(payload).await
     }
 

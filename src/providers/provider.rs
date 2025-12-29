@@ -25,4 +25,8 @@ pub trait OAuthProvider: Send + Sync {
     fn token_headers(&self) -> Vec<(String, String)> {
         Vec::new()
     }
+
+    fn include_state_in_token_request(&self) -> bool {
+        false
+    }
 }

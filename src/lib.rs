@@ -18,5 +18,5 @@ pub use error::OAuthError;
 pub use local_server::{LocalServer, LocalServerConfig};
 pub use pkce::PkcePair;
 pub use provider::{OAuthProvider, TokenRequestFormat};
-pub use providers::AnthropicProvider;
+pub use providers::{AnthropicProvider, OpenAIProvider};
 pub use types::{AuthorizationRequest, AuthorizationResponse, TokenResponse};

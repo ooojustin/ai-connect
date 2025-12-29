@@ -13,7 +13,7 @@ mod types;
 
 pub use client::{OAuthClient, OAuthClientConfig};
 pub use error::OAuthError;
-pub use local_server::LocalServer;
+pub use local_server::{LocalServer, LocalServerConfig};
 pub use pkce::PkcePair;
 pub use provider::{OAuthProvider, TokenRequestFormat};
 pub use providers::AnthropicProvider;

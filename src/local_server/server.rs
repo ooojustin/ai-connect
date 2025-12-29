@@ -1,33 +1,19 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-
-use url::Url;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use crate::{AuthorizationResponse, OAuthError};
 
-const DEFAULT_SUCCESS_HTML: &str = r#"<!doctype html>
-<html>
-  <head><meta charset="utf-8" /><title>Authorization complete</title></head>
-  <body>
-    <p>Authorization complete. You may close this window.</p>
-  </body>
-</html>
-"#;
-
-const DEFAULT_ERROR_HTML: &str = r#"<!doctype html>
-<html>
-  <head><meta charset="utf-8" /><title>Authorization error</title></head>
-  <body>
-    <p>Authorization failed. You may close this window and try again.</p>
-  </body>
-</html>
-"#;
+use super::config::{DEFAULT_ERROR_HTML, DEFAULT_SUCCESS_HTML, LocalServerConfig};
+use super::target::RedirectTarget;
 
 #[derive(Debug, Clone)]
 pub struct LocalServer {
     target: RedirectTarget,
     success_html: String,
     error_html: String,
+    timeout: Option<Duration>,
 }
 
 impl LocalServer {
@@ -37,6 +23,17 @@ impl LocalServer {
             target: RedirectTarget::parse(&redirect_uri)?,
             success_html: DEFAULT_SUCCESS_HTML.to_string(),
             error_html: DEFAULT_ERROR_HTML.to_string(),
+            timeout: None,
+        })
+    }
+
+    pub fn from_config(config: LocalServerConfig) -> Result<Self, OAuthError> {
+        let redirect_uri = config.redirect_uri();
+        Ok(Self {
+            target: RedirectTarget::parse(&redirect_uri)?,
+            success_html: config.success_html,
+            error_html: config.error_html,
+            timeout: config.timeout,
         })
     }
 
@@ -50,16 +47,62 @@ impl LocalServer {
         self
     }
 
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
+
     pub fn bind(&self) -> Result<TcpListener, OAuthError> {
         TcpListener::bind((self.target.host.as_str(), self.target.port)).map_err(OAuthError::from)
     }
 
     pub fn listen_with(&self, listener: TcpListener) -> Result<AuthorizationResponse, OAuthError> {
+        if let Some(timeout) = self.timeout {
+            return self.listen_with_timeout(listener, timeout);
+        }
+
+        self.listen_blocking(listener)
+    }
+
+    fn listen_blocking(&self, listener: TcpListener) -> Result<AuthorizationResponse, OAuthError> {
         loop {
             let (mut stream, _) = listener.accept()?;
             match self.handle_request(&mut stream)? {
                 Some(response) => return Ok(response),
                 None => continue,
+            }
+        }
+    }
+
+    fn listen_with_timeout(
+        &self,
+        listener: TcpListener,
+        timeout: Duration,
+    ) -> Result<AuthorizationResponse, OAuthError> {
+        listener.set_nonblocking(true)?;
+        let deadline = Instant::now() + timeout;
+
+        loop {
+            if Instant::now() >= deadline {
+                return Err(OAuthError::LocalServerTimeout { timeout });
+            }
+
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let now = Instant::now();
+                    if now >= deadline {
+                        return Err(OAuthError::LocalServerTimeout { timeout });
+                    }
+                    let remaining = deadline.duration_since(now);
+                    stream.set_read_timeout(Some(remaining))?;
+                    if let Some(response) = self.handle_request(&mut stream)? {
+                        return Ok(response);
+                    }
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(50));
+                }
+                Err(err) => return Err(err.into()),
             }
         }
     }
@@ -121,51 +164,6 @@ impl LocalServer {
     }
 }
 
-#[derive(Debug, Clone)]
-struct RedirectTarget {
-    scheme: String,
-    host: String,
-    port: u16,
-    path: String,
-}
-
-impl RedirectTarget {
-    fn parse(redirect_uri: &str) -> Result<Self, OAuthError> {
-        let url = Url::parse(redirect_uri)?;
-        if url.scheme() != "http" {
-            return Err(OAuthError::InvalidRedirectUri(
-                "redirect uri must use http scheme".to_string(),
-            ));
-        }
-
-        let host = url.host_str().ok_or_else(|| {
-            OAuthError::InvalidRedirectUri("redirect uri is missing host".to_string())
-        })?;
-
-        let port = url.port_or_known_default().ok_or_else(|| {
-            OAuthError::InvalidRedirectUri("redirect uri is missing port".to_string())
-        })?;
-
-        Ok(Self {
-            scheme: url.scheme().to_string(),
-            host: host.to_string(),
-            port,
-            path: url.path().to_string(),
-        })
-    }
-
-    fn build_callback_url(&self, query: &str) -> Result<String, OAuthError> {
-        let base = format!("{}://{}:{}{}", self.scheme, self.host, self.port, self.path);
-
-        if query.is_empty() {
-            return Ok(base);
-        }
-
-        let url = Url::parse(&format!("{base}?{query}"))?;
-        Ok(url.to_string())
-    }
-}
-
 fn write_response(stream: &mut TcpStream, status: &str, body: &str) -> Result<(), OAuthError> {
     let response = format!(
         "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -173,17 +171,4 @@ fn write_response(stream: &mut TcpStream, status: &str, body: &str) -> Result<()
     );
     stream.write_all(response.as_bytes())?;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::RedirectTarget;
-
-    #[test]
-    fn parses_redirect_target() {
-        let target = RedirectTarget::parse("http://localhost:8765/callback").unwrap();
-        assert_eq!(target.host, "localhost");
-        assert_eq!(target.port, 8765);
-        assert_eq!(target.path, "/callback");
-    }
 }

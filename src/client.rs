@@ -8,8 +8,8 @@ use reqwest::{
 use url::Url;
 
 use crate::{
-    AuthorizationRequest, AuthorizationResponse, LocalServer, OAuthError, OAuthProvider, PkcePair,
-    TokenRequestFormat, TokenResponse,
+    AuthorizationRequest, AuthorizationResponse, LocalServer, LocalServerConfig, OAuthError,
+    OAuthProvider, PkcePair, TokenRequestFormat, TokenResponse,
 };
 
 #[derive(Debug, Clone)]
@@ -17,6 +17,7 @@ pub struct OAuthClientConfig {
     pub client_id: String,
     pub client_secret: Option<String>,
     pub redirect_uri: String,
+    pub local_server: Option<LocalServerConfig>,
     pub scope: Option<String>,
     pub authorize_params: Vec<(String, String)>,
     pub token_params: Vec<(String, String)>,
@@ -29,6 +30,7 @@ impl OAuthClientConfig {
             client_id: client_id.into(),
             client_secret: None,
             redirect_uri: redirect_uri.into(),
+            local_server: None,
             scope: None,
             authorize_params: Vec::new(),
             token_params: Vec::new(),
@@ -48,6 +50,12 @@ impl OAuthClientConfig {
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
+        self
+    }
+
+    pub fn with_local_server_config(mut self, local_server: LocalServerConfig) -> Self {
+        self.redirect_uri = local_server.redirect_uri();
+        self.local_server = Some(local_server);
         self
     }
 
@@ -158,7 +166,10 @@ impl<P: OAuthProvider> OAuthClient<P> {
         let auth = self.authorization_url()?;
         let expected_state = auth.state.clone();
         let code_verifier = auth.pkce.code_verifier.clone();
-        let server = LocalServer::new(self.config.redirect_uri.clone())?;
+        let server = match &self.config.local_server {
+            Some(config) => LocalServer::from_config(config.clone())?,
+            None => LocalServer::new(self.config.redirect_uri.clone())?,
+        };
         let listener = server.bind()?;
 
         let handle = tokio::task::spawn_blocking(move || server.listen_with(listener));

@@ -5,6 +5,7 @@
 
 mod client;
 mod error;
+#[cfg(feature = "local-server")]
 mod local_server;
 mod pkce;
 mod provider;
@@ -13,6 +14,7 @@ mod types;
 
 pub use client::{OAuthClient, OAuthClientConfig};
 pub use error::OAuthError;
+#[cfg(feature = "local-server")]
 pub use local_server::{LocalServer, LocalServerConfig};
 pub use pkce::PkcePair;
 pub use provider::{OAuthProvider, TokenRequestFormat};

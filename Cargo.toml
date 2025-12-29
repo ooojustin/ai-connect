@@ -19,7 +19,8 @@ webbrowser = { version = "1", optional = true }
 
 [features]
 default = []
-cli = ["webbrowser", "clap"]
+local-server = []
+cli = ["webbrowser", "clap", "local-server"]
 
 [[bin]]
 name = "ai-oauth"

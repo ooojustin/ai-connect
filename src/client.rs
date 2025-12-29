@@ -8,20 +8,23 @@ use reqwest::{
 use url::Url;
 
 use crate::{
-    AuthorizationRequest, AuthorizationResponse, LocalServer, LocalServerConfig, OAuthError,
-    OAuthProvider, PkcePair, TokenRequestFormat, TokenResponse,
+    AuthorizationRequest, AuthorizationResponse, OAuthError, OAuthProvider, PkcePair,
+    TokenRequestFormat, TokenResponse,
 };
+#[cfg(feature = "local-server")]
+use crate::{LocalServer, LocalServerConfig};
 
 #[derive(Debug, Clone)]
 pub struct OAuthClientConfig {
     pub client_id: String,
     pub client_secret: Option<String>,
     pub redirect_uri: String,
-    pub local_server: Option<LocalServerConfig>,
     pub scope: Option<String>,
     pub authorize_params: Vec<(String, String)>,
     pub token_params: Vec<(String, String)>,
     pub timeout: Option<Duration>,
+    #[cfg(feature = "local-server")]
+    pub local_server: Option<LocalServerConfig>,
 }
 
 impl OAuthClientConfig {
@@ -30,11 +33,12 @@ impl OAuthClientConfig {
             client_id: client_id.into(),
             client_secret: None,
             redirect_uri: redirect_uri.into(),
-            local_server: None,
             scope: None,
             authorize_params: Vec::new(),
             token_params: Vec::new(),
             timeout: None,
+            #[cfg(feature = "local-server")]
+            local_server: None,
         }
     }
 
@@ -53,6 +57,7 @@ impl OAuthClientConfig {
         self
     }
 
+    #[cfg(feature = "local-server")]
     pub fn with_local_server_config(mut self, local_server: LocalServerConfig) -> Self {
         self.redirect_uri = local_server.redirect_uri();
         self.local_server = Some(local_server);
@@ -159,6 +164,7 @@ impl<P: OAuthProvider> OAuthClient<P> {
         })
     }
 
+    #[cfg(feature = "local-server")]
     pub async fn run_local_flow<F>(&self, on_authorize: F) -> Result<TokenResponse, OAuthError>
     where
         F: FnOnce(&AuthorizationRequest) -> Result<(), OAuthError>,

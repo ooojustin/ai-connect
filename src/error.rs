@@ -32,6 +32,7 @@ pub enum OAuthError {
     #[error("state mismatch (expected={expected}, received={received})")]
     StateMismatch { expected: String, received: String },
 
+    #[cfg(feature = "local-server")]
     #[error("local server timed out after {timeout:?}")]
     LocalServerTimeout { timeout: std::time::Duration },
 }

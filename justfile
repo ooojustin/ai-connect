@@ -2,6 +2,10 @@
 help:
     @just --list --unsorted
 
+# Run rustfmt
+fmt:
+    cargo fmt
+
 # Run Clippy with all features enabled.
 clippy:
     cargo clippy-all

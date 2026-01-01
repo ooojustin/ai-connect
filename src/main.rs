@@ -1,12 +1,12 @@
-use ai_oauth::{
+use ai_connect::{
     AnthropicProvider, OAuthClient, OAuthClientConfig, OAuthError, OAuthProvider, OpenAIProvider,
 };
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "ai-oauth",
-    about = "Runs OAuth flows and prints the token response as JSON."
+    name = "ai-connect",
+    about = "Connect to AI provider accounts via OAuth and print access tokens as JSON."
 )]
 struct Cli {
     #[command(subcommand)]

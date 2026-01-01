@@ -1,7 +1,8 @@
-//! Provider-agnostic OAuth 2.0 + PKCE helpers.
+//! Connect to AI provider accounts via OAuth 2.0 + PKCE.
 //!
-//! This crate focuses on public-client flows (no client secret required) and
-//! provides a small provider trait so new services can be added later.
+//! This crate simplifies authentication with AI providers using secure public-client
+//! OAuth flows. No client secrets required—just PKCE for security. Supports Anthropic,
+//! OpenAI, and can be extended to other providers via the `OAuthProvider` trait.
 
 mod client;
 mod error;

@@ -40,3 +40,15 @@ cli = ["webbrowser", "clap", "local-server"]
 name = "ai-connect"
 path = "src/main.rs"
 required-features = ["cli"]
+
+[[example]]
+name = "anthropic"
+required-features = ["cli"]
+
+[[example]]
+name = "openai"
+required-features = ["cli"]
+
+[[example]]
+name = "custom_config"
+required-features = ["cli"]

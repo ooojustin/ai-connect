@@ -59,6 +59,16 @@ impl LocalServerConfig {
         self
     }
 
+    pub fn with_host(mut self, host: String) -> Self {
+        self.host = host;
+        self
+    }
+
+    pub fn with_port(mut self, port: u16) -> Self {
+        self.port = port;
+        self
+    }
+
     pub fn with_success_html(mut self, html: impl Into<String>) -> Self {
         self.success_html = html.into();
         self

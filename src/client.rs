@@ -7,11 +7,14 @@ use reqwest::{
 };
 use url::Url;
 
-#[cfg(feature = "local-server")]
-use crate::{AuthHandle, LocalServer, LocalServerConfig};
 use crate::{
     AuthorizationRequest, AuthorizationResponse, OAuthError, OAuthProvider, PkcePair,
     TokenRequestFormat, TokenResponse,
+};
+#[cfg(feature = "local-server")]
+use {
+    crate::{AuthHandle, LocalServer, LocalServerConfig},
+    tokio_util::sync::CancellationToken,
 };
 
 #[derive(Debug, Clone)]
@@ -116,11 +119,11 @@ impl<P: OAuthProvider> OAuthClient<P> {
         &self.config
     }
 
-    pub fn authorization_url(&self) -> Result<AuthorizationRequest, OAuthError> {
-        self.authorization_url_with_state(None)
+    pub fn build_request(&self) -> Result<AuthorizationRequest, OAuthError> {
+        self.build_request_with_state(None)
     }
 
-    pub fn authorization_url_with_state(
+    pub fn build_request_with_state(
         &self,
         state: Option<String>,
     ) -> Result<AuthorizationRequest, OAuthError> {
@@ -174,9 +177,7 @@ impl<P: OAuthProvider> OAuthClient<P> {
         P: Clone + 'static,
         F: FnOnce(&AuthorizationRequest) -> Result<(), crate::CallbackError>,
     {
-        use tokio_util::sync::CancellationToken;
-
-        let auth = self.authorization_url()?;
+        let auth = self.build_request()?;
         let expected_state = auth.state.clone();
         let code_verifier = auth.pkce.code_verifier.clone();
 
@@ -332,10 +333,10 @@ mod tests {
     use crate::AnthropicProvider;
 
     #[test]
-    fn authorization_url_includes_required_params() {
+    fn build_request_includes_required_params() {
         let config = OAuthClientConfig::new("client-id", "http://localhost:8765/callback");
         let client = OAuthClient::new(AnthropicProvider, config).unwrap();
-        let auth = client.authorization_url().unwrap();
+        let auth = client.build_request().unwrap();
 
         let url = Url::parse(&auth.url).unwrap();
         let pairs: HashMap<_, _> = url.query_pairs().into_owned().collect();

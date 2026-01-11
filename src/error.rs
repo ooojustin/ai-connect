@@ -11,6 +11,9 @@ pub enum OAuthError {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 
+    #[error("json error: {0}")]
+    Json(#[from] serde_json::Error),
+
     #[error("os rng error: {message}")]
     OsRng { message: String },
 

@@ -33,15 +33,8 @@ async fn run_anthropic() -> Result<(), OAuthError> {
         Ok(())
     })?;
 
-    let tokens = auth.wait().await?;
-
-    let output =
-        serde_json::to_string_pretty(&tokens).map_err(|err| OAuthError::InvalidResponse {
-            message: err.to_string(),
-            body: String::new(),
-        })?;
-
-    println!("{output}");
+    let response = auth.wait().await?;
+    println!("{}", serde_json::to_string_pretty(&response)?);
     Ok(())
 }
 
@@ -52,14 +45,7 @@ async fn run_openai() -> Result<(), OAuthError> {
         Ok(())
     })?;
 
-    let tokens = auth.wait().await?;
-
-    let output =
-        serde_json::to_string_pretty(&tokens).map_err(|err| OAuthError::InvalidResponse {
-            message: err.to_string(),
-            body: String::new(),
-        })?;
-
-    println!("{output}");
+    let response = auth.wait().await?;
+    println!("{}", serde_json::to_string_pretty(&response)?);
     Ok(())
 }

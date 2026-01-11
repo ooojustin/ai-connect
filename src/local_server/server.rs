@@ -8,6 +8,8 @@ use tokio::net::TcpListener as TokioTcpListener;
 use tokio::runtime::Builder;
 use tokio::sync::oneshot;
 
+use tokio_util::sync::CancellationToken;
+
 use crate::{AuthorizationResponse, OAuthError};
 
 use super::config::{DEFAULT_ERROR_HTML, DEFAULT_SUCCESS_HTML, LocalServerConfig};
@@ -85,9 +87,31 @@ impl LocalServer {
         self.listen_with(listener)
     }
 
+    /// Listen for the OAuth callback asynchronously.
+    ///
+    /// This is equivalent to calling [`listen_with_cancellable`](Self::listen_with_cancellable)
+    /// with a cancellation token that is never triggered.
     pub async fn listen_with_async(
         &self,
         listener: TcpListener,
+    ) -> Result<AuthorizationResponse, OAuthError> {
+        self.listen_with_cancellable(listener, CancellationToken::new())
+            .await
+    }
+
+    pub async fn listen_once_async(&self) -> Result<AuthorizationResponse, OAuthError> {
+        let listener = self.bind()?;
+        self.listen_with_async(listener).await
+    }
+
+    /// Listen for the OAuth callback with cancellation support.
+    ///
+    /// Pass a [`CancellationToken`] to allow aborting the flow early.
+    /// When cancelled, returns [`OAuthError::Cancelled`].
+    pub async fn listen_with_cancellable(
+        &self,
+        listener: TcpListener,
+        cancel_token: CancellationToken,
     ) -> Result<AuthorizationResponse, OAuthError> {
         let (response_tx, response_rx) =
             oneshot::channel::<Result<AuthorizationResponse, OAuthError>>();
@@ -124,16 +148,11 @@ impl LocalServer {
             }
         });
 
-        let response = wait_for_response(response_rx, self.timeout).await;
+        let response = wait_for_response(response_rx, self.timeout, cancel_token).await;
 
         let _ = shutdown_tx.send(());
         let _ = server_handle.await;
 
         response
-    }
-
-    pub async fn listen_once_async(&self) -> Result<AuthorizationResponse, OAuthError> {
-        let listener = self.bind()?;
-        self.listen_with_async(listener).await
     }
 }

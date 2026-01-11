@@ -7,7 +7,7 @@ use crate::OAuthError;
 
 #[derive(Debug, Clone)]
 pub struct AuthorizationRequest {
-    pub authorization_url: String,
+    pub url: String,
     pub pkce: crate::PkcePair,
     pub state: String,
     pub scope: String,

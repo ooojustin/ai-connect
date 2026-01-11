@@ -7,6 +7,9 @@ use super::target::RedirectTarget;
 pub(crate) const DEFAULT_SUCCESS_HTML: &str = include_str!("html/success.html");
 pub(crate) const DEFAULT_ERROR_HTML: &str = include_str!("html/error.html");
 
+/// Default timeout for OAuth callback (3 minutes).
+const DEFAULT_TIMEOUT_SECS: u64 = 180;
+
 #[derive(Debug, Clone)]
 pub struct LocalServerConfig {
     pub host: String,
@@ -23,7 +26,7 @@ impl LocalServerConfig {
             host: host.into(),
             port,
             path: normalize_path(path.into()),
-            timeout: None,
+            timeout: Some(Duration::from_secs(DEFAULT_TIMEOUT_SECS)),
             success_html: DEFAULT_SUCCESS_HTML.to_string(),
             error_html: DEFAULT_ERROR_HTML.to_string(),
         }
@@ -35,10 +38,16 @@ impl LocalServerConfig {
             host: target.host,
             port: target.port,
             path: target.path,
-            timeout: None,
+            timeout: Some(Duration::from_secs(DEFAULT_TIMEOUT_SECS)),
             success_html: DEFAULT_SUCCESS_HTML.to_string(),
             error_html: DEFAULT_ERROR_HTML.to_string(),
         })
+    }
+
+    /// Disable the timeout (wait indefinitely for OAuth callback).
+    pub fn without_timeout(mut self) -> Self {
+        self.timeout = None;
+        self
     }
 
     pub fn redirect_uri(&self) -> String {

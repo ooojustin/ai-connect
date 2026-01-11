@@ -1,4 +1,6 @@
-use crate::OAuthProvider;
+#[cfg(feature = "local-server")]
+use crate::{AuthHandle, AuthorizationRequest, CallbackError};
+use crate::{OAuthClient, OAuthClientConfig, OAuthError, OAuthProvider};
 
 const AUTHORIZE_URL: &str = "https://claude.ai/oauth/authorize";
 const TOKEN_URL: &str = "https://console.anthropic.com/v1/oauth/token";
@@ -48,5 +50,22 @@ impl AnthropicProvider {
 
     pub fn default_redirect_uri() -> &'static str {
         DEFAULT_REDIRECT_URI
+    }
+
+    /// Create a pre-configured OAuth client with default settings.
+    pub fn client() -> Result<OAuthClient<Self>, OAuthError> {
+        let provider = Self;
+        let config =
+            OAuthClientConfig::new(Self::default_client_id(), Self::default_redirect_uri());
+        OAuthClient::new(provider, config)
+    }
+
+    /// Start authorization with default client settings.
+    #[cfg(feature = "local-server")]
+    pub fn authorize<F>(on_authorize: F) -> Result<AuthHandle, OAuthError>
+    where
+        F: FnOnce(&AuthorizationRequest) -> Result<(), CallbackError>,
+    {
+        Self::client()?.authorize(on_authorize)
     }
 }

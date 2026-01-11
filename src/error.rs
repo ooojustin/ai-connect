@@ -1,7 +1,13 @@
 use thiserror::Error;
 
+/// Error type for authorization callbacks.
+pub type CallbackError = Box<dyn std::error::Error + Send + Sync>;
+
 #[derive(Debug, Error)]
 pub enum OAuthError {
+    #[error("callback failed: {0}")]
+    CallbackFailed(#[source] CallbackError),
+
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 
@@ -35,4 +41,8 @@ pub enum OAuthError {
     #[cfg(feature = "local-server")]
     #[error("local server timed out after {timeout:?}")]
     LocalServerTimeout { timeout: std::time::Duration },
+
+    #[cfg(feature = "local-server")]
+    #[error("OAuth flow was cancelled")]
+    Cancelled,
 }

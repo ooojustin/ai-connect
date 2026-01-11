@@ -7,12 +7,12 @@ use reqwest::{
 };
 use url::Url;
 
+#[cfg(feature = "local-server")]
+use crate::{AuthHandle, LocalServer, LocalServerConfig};
 use crate::{
     AuthorizationRequest, AuthorizationResponse, OAuthError, OAuthProvider, PkcePair,
     TokenRequestFormat, TokenResponse,
 };
-#[cfg(feature = "local-server")]
-use crate::{LocalServer, LocalServerConfig};
 
 #[derive(Debug, Clone)]
 pub struct OAuthClientConfig {
@@ -157,37 +157,64 @@ impl<P: OAuthProvider> OAuthClient<P> {
         }
 
         Ok(AuthorizationRequest {
-            authorization_url: url.to_string(),
+            url: url.to_string(),
             pkce,
             state,
             scope: scope.to_string(),
         })
     }
 
+    /// Start an OAuth authorization flow using a local server to receive the callback.
+    ///
+    /// The `on_authorize` callback receives the authorization URL to open in a browser.
+    /// Returns an [`AuthHandle`] for awaiting, polling, or cancelling the flow.
     #[cfg(feature = "local-server")]
-    pub async fn run_local_flow<F>(&self, on_authorize: F) -> Result<TokenResponse, OAuthError>
+    pub fn authorize<F>(&self, on_authorize: F) -> Result<AuthHandle, OAuthError>
     where
-        F: FnOnce(&AuthorizationRequest) -> Result<(), OAuthError>,
+        P: Clone + 'static,
+        F: FnOnce(&AuthorizationRequest) -> Result<(), crate::CallbackError>,
     {
+        use tokio_util::sync::CancellationToken;
+
         let auth = self.authorization_url()?;
         let expected_state = auth.state.clone();
         let code_verifier = auth.pkce.code_verifier.clone();
+
         let server = match &self.config.local_server {
             Some(config) => LocalServer::from_config(config.clone())?,
             None => LocalServer::new(self.config.redirect_uri.clone())?,
         };
         let listener = server.bind()?;
-        let handle = tokio::spawn(async move { server.listen_with_async(listener).await });
 
-        on_authorize(&auth)?;
+        on_authorize(&auth).map_err(OAuthError::CallbackFailed)?;
 
-        let response = handle.await.map_err(|err| OAuthError::InvalidResponse {
-            message: err.to_string(),
-            body: String::new(),
-        })??;
+        let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+        let cancel_token = CancellationToken::new();
+        let cancel_token_clone = cancel_token.clone();
 
-        self.exchange_code(response, &code_verifier, Some(&expected_state))
-            .await
+        let http = self.http.clone();
+        let provider = self.provider.clone();
+        let config = self.config.clone();
+
+        tokio::spawn(async move {
+            let result = server
+                .listen_with_cancellable(listener, cancel_token_clone)
+                .await;
+
+            let final_result = match result {
+                Ok(response) => {
+                    let client = OAuthClient::with_http_client(provider, config, http);
+                    client
+                        .exchange_code(response, &code_verifier, Some(&expected_state))
+                        .await
+                }
+                Err(e) => Err(e),
+            };
+
+            let _ = result_tx.send(final_result);
+        });
+
+        Ok(AuthHandle::new(result_rx, cancel_token))
     }
 
     pub async fn exchange_code(
@@ -310,7 +337,7 @@ mod tests {
         let client = OAuthClient::new(AnthropicProvider, config).unwrap();
         let auth = client.authorization_url().unwrap();
 
-        let url = Url::parse(&auth.authorization_url).unwrap();
+        let url = Url::parse(&auth.url).unwrap();
         let pairs: HashMap<_, _> = url.query_pairs().into_owned().collect();
 
         assert_eq!(pairs.get("response_type"), Some(&"code".to_string()));

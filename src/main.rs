@@ -1,6 +1,4 @@
-use ai_connect::{
-    AnthropicProvider, OAuthClient, OAuthClientConfig, OAuthError, OAuthProvider, OpenAIProvider,
-};
+use ai_connect::{AnthropicProvider, OAuthError, OpenAIProvider};
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
@@ -29,24 +27,13 @@ async fn main() -> Result<(), OAuthError> {
 }
 
 async fn run_anthropic() -> Result<(), OAuthError> {
-    let provider = AnthropicProvider;
-    let config = OAuthClientConfig::new(
-        AnthropicProvider::default_client_id(),
-        AnthropicProvider::default_redirect_uri(),
-    )
-    .with_scope(provider.default_scope());
+    let auth = AnthropicProvider::authorize(|req| {
+        eprintln!("Authorization URL:\n{}", req.url);
+        webbrowser::open(&req.url).ok();
+        Ok(())
+    })?;
 
-    let client = OAuthClient::new(provider, config)?;
-
-    let tokens = client
-        .run_local_flow(|auth| {
-            eprintln!("Authorization URL:\n{}", auth.authorization_url);
-            if let Err(err) = webbrowser::open(&auth.authorization_url) {
-                eprintln!("Failed to open browser automatically: {err}");
-            }
-            Ok(())
-        })
-        .await?;
+    let tokens = auth.wait().await?;
 
     let output =
         serde_json::to_string_pretty(&tokens).map_err(|err| OAuthError::InvalidResponse {
@@ -59,24 +46,13 @@ async fn run_anthropic() -> Result<(), OAuthError> {
 }
 
 async fn run_openai() -> Result<(), OAuthError> {
-    let provider = OpenAIProvider::new();
-    let config = OAuthClientConfig::new(
-        OpenAIProvider::default_client_id(),
-        OpenAIProvider::default_redirect_uri(),
-    )
-    .with_scope(provider.default_scope());
+    let auth = OpenAIProvider::authorize(|req| {
+        eprintln!("Authorization URL:\n{}", req.url);
+        webbrowser::open(&req.url).ok();
+        Ok(())
+    })?;
 
-    let client = OAuthClient::new(provider, config)?;
-
-    let tokens = client
-        .run_local_flow(|auth| {
-            eprintln!("Authorization URL:\n{}", auth.authorization_url);
-            if let Err(err) = webbrowser::open(&auth.authorization_url) {
-                eprintln!("Failed to open browser automatically: {err}");
-            }
-            Ok(())
-        })
-        .await?;
+    let tokens = auth.wait().await?;
 
     let output =
         serde_json::to_string_pretty(&tokens).map_err(|err| OAuthError::InvalidResponse {

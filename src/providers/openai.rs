@@ -1,4 +1,6 @@
-use crate::{OAuthProvider, TokenRequestFormat};
+#[cfg(feature = "local-server")]
+use crate::{AuthHandle, AuthorizationRequest, CallbackError};
+use crate::{OAuthClient, OAuthClientConfig, OAuthError, OAuthProvider, TokenRequestFormat};
 
 // References:
 // - https://github.com/openai/codex/blob/810ebe0d2b23cdf29f65e6ca50ee46fa1c24a877/codex-rs/login/src/server.rs#L380-L418
@@ -85,6 +87,23 @@ impl OpenAIProvider {
 
     pub fn default_redirect_uri() -> &'static str {
         DEFAULT_REDIRECT_URI
+    }
+
+    /// Create a pre-configured OAuth client with default settings.
+    pub fn client() -> Result<OAuthClient<Self>, OAuthError> {
+        let provider = Self::default();
+        let config =
+            OAuthClientConfig::new(Self::default_client_id(), Self::default_redirect_uri());
+        OAuthClient::new(provider, config)
+    }
+
+    /// Start authorization with default client settings.
+    #[cfg(feature = "local-server")]
+    pub fn authorize<F>(on_authorize: F) -> Result<AuthHandle, OAuthError>
+    where
+        F: FnOnce(&AuthorizationRequest) -> Result<(), CallbackError>,
+    {
+        Self::client()?.authorize(on_authorize)
     }
 }
 

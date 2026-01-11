@@ -7,6 +7,7 @@ use axum::{
     response::{Html, IntoResponse},
 };
 use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
 
 use crate::{AuthorizationResponse, OAuthError};
 
@@ -70,22 +71,39 @@ pub(super) async fn fallback_handler(State(state): State<LocalServerState>) -> i
     (StatusCode::NOT_FOUND, Html(state.error_html))
 }
 
+/// Wait for a response with cancellation support.
+///
+/// Uses `tokio::select!` to race between:
+/// - The response being received
+/// - The timeout expiring (if set)
+/// - The cancellation token being triggered
 pub(super) async fn wait_for_response(
     response_rx: ResponseReceiver,
     timeout: Option<Duration>,
+    cancel_token: CancellationToken,
 ) -> Result<AuthorizationResponse, OAuthError> {
-    if let Some(timeout) = timeout {
-        let result = tokio::time::timeout(timeout, response_rx)
-            .await
-            .map_err(|_| OAuthError::LocalServerTimeout { timeout })?;
-        result.map_err(|_| OAuthError::InvalidResponse {
-            message: "local server response channel closed".to_string(),
-            body: String::new(),
-        })?
-    } else {
-        response_rx.await.map_err(|_| OAuthError::InvalidResponse {
-            message: "local server response channel closed".to_string(),
-            body: String::new(),
-        })?
+    tokio::select! {
+        biased;
+
+        _ = cancel_token.cancelled() => {
+            Err(OAuthError::Cancelled)
+        }
+
+        result = async {
+            if let Some(timeout) = timeout {
+                tokio::time::timeout(timeout, response_rx)
+                    .await
+                    .map_err(|_| OAuthError::LocalServerTimeout { timeout })?
+                    .map_err(|_| OAuthError::InvalidResponse {
+                        message: "local server response channel closed".to_string(),
+                        body: String::new(),
+                    })?
+            } else {
+                response_rx.await.map_err(|_| OAuthError::InvalidResponse {
+                    message: "local server response channel closed".to_string(),
+                    body: String::new(),
+                })?
+            }
+        } => result,
     }
 }

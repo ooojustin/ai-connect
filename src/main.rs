@@ -1,4 +1,6 @@
-use ai_connect::{AnthropicProvider, OAuthError, OpenAIProvider};
+use ai_connect::{
+    AnthropicProvider, AuthorizationRequest, CallbackError, OAuthError, OpenAIProvider,
+};
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
@@ -27,25 +29,23 @@ async fn main() -> Result<(), OAuthError> {
 }
 
 async fn run_anthropic() -> Result<(), OAuthError> {
-    let auth = AnthropicProvider::authorize(|req| {
-        eprintln!("Authorization URL:\n{}", req.url);
-        webbrowser::open(&req.url).ok();
-        Ok(())
-    })?;
-
+    let auth = AnthropicProvider::authorize(open_browser)?;
     let response = auth.wait().await?;
     println!("{}", serde_json::to_string_pretty(&response)?);
     Ok(())
 }
 
 async fn run_openai() -> Result<(), OAuthError> {
-    let auth = OpenAIProvider::authorize(|req| {
-        eprintln!("Authorization URL:\n{}", req.url);
-        webbrowser::open(&req.url).ok();
-        Ok(())
-    })?;
-
+    let auth = OpenAIProvider::authorize(open_browser)?;
     let response = auth.wait().await?;
     println!("{}", serde_json::to_string_pretty(&response)?);
+    Ok(())
+}
+
+fn open_browser(req: &AuthorizationRequest) -> Result<(), CallbackError> {
+    eprintln!("Authorization URL:\n{}", req.url);
+    if let Err(err) = webbrowser::open(&req.url) {
+        eprintln!("Failed to open browser automatically: {err}");
+    }
     Ok(())
 }

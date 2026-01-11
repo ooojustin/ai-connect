@@ -75,10 +75,7 @@ impl LocalServer {
 
         match handle.join() {
             Ok(result) => result,
-            Err(_) => Err(OAuthError::InvalidResponse {
-                message: "local server thread panicked".to_string(),
-                body: String::new(),
-            }),
+            Err(_) => Err(OAuthError::Internal("local server thread panicked".into())),
         }
     }
 
@@ -140,10 +137,7 @@ impl LocalServer {
         let response_tx_for_server = response_tx.clone();
         let server_handle = tokio::spawn(async move {
             if let Err(err) = server.await {
-                let error = OAuthError::InvalidResponse {
-                    message: err.to_string(),
-                    body: String::new(),
-                };
+                let error = OAuthError::Internal(err.to_string());
                 send_response(&response_tx_for_server, Err(error));
             }
         });

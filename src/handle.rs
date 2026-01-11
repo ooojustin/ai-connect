@@ -36,10 +36,7 @@ impl AuthHandle {
     pub async fn wait(self) -> Result<TokenResponse, OAuthError> {
         self.result_rx
             .await
-            .map_err(|_| OAuthError::InvalidResponse {
-                message: "OAuth flow channel closed unexpectedly".to_string(),
-                body: String::new(),
-            })?
+            .map_err(|e| OAuthError::Internal(format!("OAuth flow channel closed: {e}")))?
     }
 
     /// Non-blocking check if a result is ready.
@@ -47,10 +44,9 @@ impl AuthHandle {
         match self.result_rx.try_recv() {
             Ok(result) => Some(result),
             Err(oneshot::error::TryRecvError::Empty) => None,
-            Err(oneshot::error::TryRecvError::Closed) => Some(Err(OAuthError::InvalidResponse {
-                message: "OAuth flow channel closed unexpectedly".to_string(),
-                body: String::new(),
-            })),
+            Err(oneshot::error::TryRecvError::Closed) => Some(Err(OAuthError::Internal(
+                "OAuth flow channel closed".into(),
+            ))),
         }
     }
 }

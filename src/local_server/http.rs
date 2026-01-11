@@ -94,15 +94,9 @@ pub(super) async fn wait_for_response(
                 tokio::time::timeout(timeout, response_rx)
                     .await
                     .map_err(|_| OAuthError::LocalServerTimeout { timeout })?
-                    .map_err(|_| OAuthError::InvalidResponse {
-                        message: "local server response channel closed".to_string(),
-                        body: String::new(),
-                    })?
+                    .map_err(|e| OAuthError::Internal(format!("response channel closed: {e}")))?
             } else {
-                response_rx.await.map_err(|_| OAuthError::InvalidResponse {
-                    message: "local server response channel closed".to_string(),
-                    body: String::new(),
-                })?
+                response_rx.await.map_err(|e| OAuthError::Internal(format!("response channel closed: {e}")))?
             }
         } => result,
     }

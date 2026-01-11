@@ -48,4 +48,7 @@ pub enum OAuthError {
     #[cfg(feature = "local-server")]
     #[error("OAuth flow was cancelled")]
     Cancelled,
+
+    #[error("internal error: {0}")]
+    Internal(String),
 }
